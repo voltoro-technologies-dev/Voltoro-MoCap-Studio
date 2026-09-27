@@ -4,8 +4,8 @@ import { computeBoneRotations, MoCapRecorder, OneEuroFilter } from './mocap-math
 import { OpenRouterMoCapAI } from './ai-director.js';
 
 // OpenRouter configuration
-const OPENROUTER_KEY = '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';
-const AI_MODEL = 'qwen/qwen-2.5-72b-instruct'; // high accuracy model for animation math & direction
+const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_KEY || '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';
+const AI_MODEL = import.meta.env.VITE_AI_MODEL || 'qwen/qwen-2.5-72b-instruct';
 
 const app = document.querySelector('#app');
 
