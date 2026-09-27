@@ -1,6 +1,6 @@
 import './style.css';
 import { MoCapRigVisualizer } from './mocap-rig.js';
-import { computeBoneRotations, MoCapRecorder, OneEuroFilter } from './mocap-math.js';
+import { computeBoneRotations, MoCapRecorder, LandmarkFilterBank } from './mocap-math.js';
 import { OpenRouterMoCapAI } from './ai-director.js';
 
 // OpenRouter configuration
@@ -174,6 +174,7 @@ app.innerHTML = `
 const rigContainer = document.getElementById('rig-canvas-container');
 const visualizer = new MoCapRigVisualizer(rigContainer);
 const recorder = new MoCapRecorder();
+const filterBank = new LandmarkFilterBank();
 const aiDirector = new OpenRouterMoCapAI(OPENROUTER_KEY, AI_MODEL);
 
 // Elements
@@ -298,9 +299,10 @@ function onPoseResults(results) {
     lastFpsTime = now;
   }
 
-  const worldLandmarks = results.worldLandmarks || results.poseLandmarks;
+  const rawLandmarks = results.worldLandmarks || results.poseLandmarks;
 
-  if (worldLandmarks && worldLandmarks.length > 0) {
+  if (rawLandmarks && rawLandmarks.length >= 33) {
+    const worldLandmarks = filterBank.filterLandmarks(rawLandmarks, now);
     boneCount.innerText = worldLandmarks.length;
     visualizer.updatePose(worldLandmarks);
 
