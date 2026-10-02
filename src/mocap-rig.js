@@ -67,13 +67,38 @@ export class MoCapRigVisualizer {
     this.joints = [];
     this.bones = [];
 
-    // Sphere geometry for joints
-    const jointGeo = new THREE.SphereGeometry(0.035, 16, 16);
-    const jointMat = new THREE.MeshStandardMaterial({
-      color: 0x00f0ff,
+    // Joint Geometries
+    const bodyJointGeo = new THREE.SphereGeometry(0.028, 16, 16);
+    const handJointGeo = new THREE.SphereGeometry(0.012, 12, 12);
+    const faceJointGeo = new THREE.SphereGeometry(0.007, 8, 8);
+
+    // Color materials for distinct anatomy zones
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0x00f0ff, // Neon Cyan for Pose Body
       emissive: 0x005577,
       roughness: 0.2,
       metalness: 0.8
+    });
+
+    const leftHandMat = new THREE.MeshStandardMaterial({
+      color: 0x00f59b, // Neon Emerald Green for Left Hand
+      emissive: 0x005533,
+      roughness: 0.2,
+      metalness: 0.8
+    });
+
+    const rightHandMat = new THREE.MeshStandardMaterial({
+      color: 0xffaa00, // Amber Gold for Right Hand
+      emissive: 0x553300,
+      roughness: 0.2,
+      metalness: 0.8
+    });
+
+    const faceMat = new THREE.MeshStandardMaterial({
+      color: 0x7928ca, // Holographic Purple for Face Mesh
+      emissive: 0x331166,
+      roughness: 0.3,
+      metalness: 0.7
     });
 
     const boneMat = new THREE.MeshStandardMaterial({
@@ -83,17 +108,26 @@ export class MoCapRigVisualizer {
       metalness: 0.7
     });
 
-    // 33 MediaPipe landmark nodes
-    for (let i = 0; i < 33; i++) {
-      const mesh = new THREE.Mesh(jointGeo, jointMat.clone());
+    // Create 543 joint nodes (33 body + 21 left hand + 21 right hand + 468 face mesh)
+    for (let i = 0; i < 543; i++) {
+      let mesh;
+      if (i < 33) {
+        mesh = new THREE.Mesh(bodyJointGeo, bodyMat.clone());
+      } else if (i < 54) {
+        mesh = new THREE.Mesh(handJointGeo, leftHandMat.clone());
+      } else if (i < 75) {
+        mesh = new THREE.Mesh(handJointGeo, rightHandMat.clone());
+      } else {
+        mesh = new THREE.Mesh(faceJointGeo, faceMat.clone());
+      }
       mesh.visible = false;
       this.scene.add(mesh);
       this.joints.push(mesh);
     }
 
-    // Predefined humanoid bone connections (pairs of indices)
+    // Predefined bone connections for Body, Left Hand, and Right Hand
     this.connections = [
-      // Face / Head
+      // Face / Head outline (Body landmarks)
       [0, 1], [1, 2], [2, 3], [3, 7],
       [0, 4], [4, 5], [5, 6], [6, 8],
       [9, 10],
@@ -102,16 +136,40 @@ export class MoCapRigVisualizer {
       [11, 23], [12, 24], // Shoulders to hips
       [23, 24], // Hips base
       // Left Arm
-      [11, 13], [13, 15], [15, 17], [15, 19], [15, 21],
+      [11, 13], [13, 15],
       // Right Arm
-      [12, 14], [14, 16], [16, 18], [16, 20], [16, 22],
+      [12, 14], [14, 16],
       // Left Leg
       [23, 25], [25, 27], [27, 29], [27, 31],
       // Right Leg
       [24, 26], [26, 28], [28, 30], [28, 32]
     ];
 
-    const cylinderGeo = new THREE.CylinderGeometry(0.018, 0.018, 1, 8);
+    // Left Hand Bones (Indices 33 to 53 -> offsets 0..20)
+    const lhBase = 33;
+    // Wrist to arm connection
+    this.connections.push([15, lhBase]); // Wrist to Hand base
+    const handChains = [
+      [0, 1], [1, 2], [2, 3], [3, 4],       // Thumb
+      [0, 5], [5, 6], [6, 7], [7, 8],       // Index
+      [0, 9], [9, 10], [10, 11], [11, 12],  // Middle
+      [0, 13], [13, 14], [14, 15], [15, 16],// Ring
+      [0, 17], [17, 18], [18, 19], [19, 20],// Pinky
+      [5, 9], [9, 13], [13, 17]             // Palm base
+    ];
+
+    handChains.forEach(([s, e]) => {
+      this.connections.push([lhBase + s, lhBase + e]);
+    });
+
+    // Right Hand Bones (Indices 54 to 74 -> offsets 0..20)
+    const rhBase = 54;
+    this.connections.push([16, rhBase]); // Right wrist to Right Hand base
+    handChains.forEach(([s, e]) => {
+      this.connections.push([rhBase + s, rhBase + e]);
+    });
+
+    const cylinderGeo = new THREE.CylinderGeometry(0.014, 0.014, 1, 8);
     cylinderGeo.translate(0, 0.5, 0);
     cylinderGeo.rotateX(Math.PI / 2);
 
@@ -175,7 +233,7 @@ export class MoCapRigVisualizer {
     });
   }
 
-  updatePose(worldLandmarks) {
+  updatePose(worldLandmarks, isMirrored = false) {
     if (!worldLandmarks || worldLandmarks.length === 0) {
       this.joints.forEach(j => j.visible = false);
       this.bones.forEach(b => b.visible = false);
@@ -183,12 +241,14 @@ export class MoCapRigVisualizer {
     }
 
     // MediaPipe 3D coordinates: X right, Y down, Z forward
-    // Invert Y and adjust scaling for high-precision real-world game rig alignment
+    // In Natural Real-World Mode (isMirrored = false): Invert X so raising your right hand raises avatar's right hand.
     const scale = 1.35;
     const yOffset = 0.2;
 
     const positions = worldLandmarks.map(lm => {
-      return new THREE.Vector3(-lm.x * scale, -lm.y * scale + yOffset, -lm.z * scale);
+      const x = isMirrored ? -lm.x : lm.x;
+      const z = lm.z !== undefined ? lm.z : 0;
+      return new THREE.Vector3(x * scale, -lm.y * scale + yOffset, -z * scale);
     });
 
     // Update Joints
@@ -199,19 +259,30 @@ export class MoCapRigVisualizer {
       }
     });
 
+    // Hide unpopulated joints
+    for (let i = positions.length; i < this.joints.length; i++) {
+      this.joints[i].visible = false;
+    }
+
     // Update Bone Connections
     this.connections.forEach(([startIdx, endIdx], i) => {
+      if (i >= this.bones.length) return;
       const p1 = positions[startIdx];
       const p2 = positions[endIdx];
       const boneMesh = this.bones[i];
 
-      if (p1 && p2) {
+      if (p1 && p2 && startIdx < positions.length && endIdx < positions.length) {
         const distance = p1.distanceTo(p2);
-        boneMesh.position.copy(p1);
-        boneMesh.lookAt(p2);
-        boneMesh.scale.set(1, 1, distance);
-        boneMesh.visible = true;
+        // Avoid connecting distant fallback points
+        if (distance > 0.005 && distance < 1.8) {
+          boneMesh.position.copy(p1);
+          boneMesh.lookAt(p2);
+          boneMesh.scale.set(1, 1, distance);
+          boneMesh.visible = true;
+          return;
+        }
       }
+      boneMesh.visible = false;
     });
   }
 
