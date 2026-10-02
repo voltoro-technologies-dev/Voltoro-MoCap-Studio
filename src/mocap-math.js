@@ -47,11 +47,15 @@ export class OneEuroFilter {
   }
 }
 
-// 33-landmark point smoothing bank
+// Dynamic Landmark Filter Bank (supports 33 body + 468 face + 42 hands = 543+ joints)
 export class LandmarkFilterBank {
-  constructor() {
+  constructor(initialCount = 543) {
     this.filters = [];
-    for (let i = 0; i < 33; i++) {
+    this.ensureSize(initialCount);
+  }
+
+  ensureSize(count) {
+    while (this.filters.length < count) {
       this.filters.push({
         x: new OneEuroFilter(1.2, 0.006),
         y: new OneEuroFilter(1.2, 0.006),
@@ -61,13 +65,14 @@ export class LandmarkFilterBank {
   }
 
   filterLandmarks(landmarks, timestamp) {
-    if (!landmarks || landmarks.length < 33) return landmarks;
+    if (!landmarks || landmarks.length === 0) return landmarks;
+    this.ensureSize(landmarks.length);
     return landmarks.map((lm, idx) => {
       const f = this.filters[idx];
       return {
         x: f.x.filter(lm.x, timestamp),
         y: f.y.filter(lm.y, timestamp),
-        z: f.z.filter(lm.z, timestamp),
+        z: f.z.filter(lm.z !== undefined ? lm.z : 0, timestamp),
         visibility: lm.visibility !== undefined ? lm.visibility : 1.0
       };
     });
@@ -83,12 +88,17 @@ export class LandmarkFilterBank {
 }
 
 // Robust Humanoid Bone Orientation Solver (Relative joint space)
-export function computeBoneRotations(landmarks) {
+export function computeBoneRotations(landmarks, isMirrored = false) {
   if (!landmarks || landmarks.length < 33) return [];
 
-  // MediaPipe coordinates: X right, Y down, Z forward
-  // Convert into standard 3D coordinates: X right, Y up, Z towards viewer
-  const getVec = (idx) => new THREE.Vector3(-landmarks[idx].x, -landmarks[idx].y, -landmarks[idx].z);
+  // MediaPipe coordinates: X right, Y down, Z forward.
+  // Standard 3D: X right, Y up, Z towards viewer.
+  // If isMirrored is false (Natural Real-World Mode): Invert X so your Right Arm is Avatar's Right Arm.
+  const getVec = (idx) => {
+    const lm = landmarks[idx];
+    const xVal = isMirrored ? lm.x : -lm.x;
+    return new THREE.Vector3(xVal, -lm.y, -lm.z);
+  };
 
   const bones = [];
 
