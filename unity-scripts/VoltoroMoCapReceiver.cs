@@ -58,6 +58,8 @@ namespace Voltoro.MoCap
         public string type;
         public long timestamp;
         public int frame;
+        public bool isMirrored;
+        public int totalJoints;
         public MoCapVector3 rootPos;
         public List<MoCapLandmark> landmarks;
         public List<MoCapBoneRotation> bones;
@@ -67,6 +69,7 @@ namespace Voltoro.MoCap
     /// Voltoro MoCap Live Receiver for Unity Humanoid Avatars.
     /// Connects via WebSocket to the Voltoro MoCap phone/web app and applies
     /// real-time full body motion capture directly to your Animator avatar or custom bones!
+    /// Supports 543 joints (Body, Face Mesh, Left & Right Hand fingers).
     /// </summary>
     public class VoltoroMoCapReceiver : MonoBehaviour
     {
@@ -86,10 +89,13 @@ namespace Voltoro.MoCap
         public float smoothingSpeed = 15f;
         public float positionScale = 1.0f;
         public bool applyRootMotion = true;
+        [Tooltip("If checked, inverts X coordinate if stream mirror mode was toggled")]
+        public bool autoMatchStreamOrientation = true;
 
         [Header("Debug Visualizer")]
         public bool showGizmos = true;
         public Color jointColor = Color.cyan;
+        public Color handColor = Color.green;
         public Color boneColor = Color.yellow;
 
         private ClientWebSocket _webSocket;
@@ -132,18 +138,52 @@ namespace Voltoro.MoCap
                 HumanBodyBones.Chest,
                 HumanBodyBones.Neck,
                 HumanBodyBones.Head,
+                // Arms & Hands
                 HumanBodyBones.LeftUpperArm,
                 HumanBodyBones.LeftLowerArm,
                 HumanBodyBones.LeftHand,
                 HumanBodyBones.RightUpperArm,
                 HumanBodyBones.RightLowerArm,
                 HumanBodyBones.RightHand,
+                // Legs & Feet
                 HumanBodyBones.LeftUpperLeg,
                 HumanBodyBones.LeftLowerLeg,
                 HumanBodyBones.LeftFoot,
                 HumanBodyBones.RightUpperLeg,
                 HumanBodyBones.RightLowerLeg,
-                HumanBodyBones.RightFoot
+                HumanBodyBones.RightFoot,
+                // Left Fingers
+                HumanBodyBones.LeftThumbProximal,
+                HumanBodyBones.LeftThumbIntermediate,
+                HumanBodyBones.LeftThumbDistal,
+                HumanBodyBones.LeftIndexProximal,
+                HumanBodyBones.LeftIndexIntermediate,
+                HumanBodyBones.LeftIndexDistal,
+                HumanBodyBones.LeftMiddleProximal,
+                HumanBodyBones.LeftMiddleIntermediate,
+                HumanBodyBones.LeftMiddleDistal,
+                HumanBodyBones.LeftRingProximal,
+                HumanBodyBones.LeftRingIntermediate,
+                HumanBodyBones.LeftRingDistal,
+                HumanBodyBones.LeftLittleProximal,
+                HumanBodyBones.LeftLittleIntermediate,
+                HumanBodyBones.LeftLittleDistal,
+                // Right Fingers
+                HumanBodyBones.RightThumbProximal,
+                HumanBodyBones.RightThumbIntermediate,
+                HumanBodyBones.RightThumbDistal,
+                HumanBodyBones.RightIndexProximal,
+                HumanBodyBones.RightIndexIntermediate,
+                HumanBodyBones.RightIndexDistal,
+                HumanBodyBones.RightMiddleProximal,
+                HumanBodyBones.RightMiddleIntermediate,
+                HumanBodyBones.RightMiddleDistal,
+                HumanBodyBones.RightRingProximal,
+                HumanBodyBones.RightRingIntermediate,
+                HumanBodyBones.RightRingDistal,
+                HumanBodyBones.RightLittleProximal,
+                HumanBodyBones.RightLittleIntermediate,
+                HumanBodyBones.RightLittleDistal
             };
 
             foreach (var bone in bonesToMap)
@@ -250,6 +290,11 @@ namespace Voltoro.MoCap
             ApplyMoCapDataToAvatar(_latestPacket);
         }
 
+        public MoCapPacket GetLatestPacket()
+        {
+            return _latestPacket;
+        }
+
         private void ApplyMoCapDataToAvatar(MoCapPacket packet)
         {
             // 1. Root Position
@@ -287,11 +332,29 @@ namespace Voltoro.MoCap
         {
             if (!showGizmos || _latestPacket == null || _latestPacket.landmarks == null) return;
 
-            Gizmos.color = jointColor;
-            foreach (var lm in _latestPacket.landmarks)
+            for (int i = 0; i < _latestPacket.landmarks.Count; i++)
             {
-                Vector3 worldPt = transform.TransformPoint(lm.pos.ToUnity());
-                Gizmos.DrawSphere(worldPt, 0.04f);
+                var lm = _latestPacket.landmarks[i];
+                if (lm.visibility < 0.1f) continue;
+
+                if (i < 33)
+                {
+                    Gizmos.color = jointColor; // Cyan for Body
+                    Vector3 worldPt = transform.TransformPoint(lm.pos.ToUnity());
+                    Gizmos.DrawSphere(worldPt, 0.035f);
+                }
+                else if (i < 75)
+                {
+                    Gizmos.color = handColor; // Green for Fingers & Hands
+                    Vector3 worldPt = transform.TransformPoint(lm.pos.ToUnity());
+                    Gizmos.DrawSphere(worldPt, 0.015f);
+                }
+                else
+                {
+                    Gizmos.color = new Color(0.6f, 0.2f, 0.9f, 0.5f); // Violet for Face Mesh
+                    Vector3 worldPt = transform.TransformPoint(lm.pos.ToUnity());
+                    Gizmos.DrawSphere(worldPt, 0.006f);
+                }
             }
         }
     }
