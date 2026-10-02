@@ -65,10 +65,13 @@ app.innerHTML = `
         <!-- Viewport Overlay HUD -->
         <div style="position:absolute; top:8px; left:8px; pointer-events:none; display:flex; flex-direction:column; gap:4px; z-index:5;">
           <div style="font-family:var(--font-mono); font-size:0.7rem; color:var(--accent-cyan); background:rgba(0,0,0,0.65); padding:3px 6px; border-radius:4px; backdrop-filter:blur(4px);">
-            JOINTS: <span id="bone-count">0</span> / 33
+            JOINTS: <span id="bone-count">0</span> / 543 (Holistic)
+          </div>
+          <div style="font-family:var(--font-mono); font-size:0.65rem; color:var(--accent-emerald); background:rgba(0,0,0,0.65); padding:3px 6px; border-radius:4px; backdrop-filter:blur(4px);">
+            ORIENTATION: <span id="mirror-mode-text">NATURAL (TRUE RIGHT/LEFT)</span>
           </div>
           <div style="font-family:var(--font-mono); font-size:0.65rem; color:var(--text-muted); background:rgba(0,0,0,0.65); padding:3px 6px; border-radius:4px; backdrop-filter:blur(4px);">
-            Touch/Drag to Orbit
+            Touch/Drag to Orbit • Scroll to Zoom
           </div>
         </div>
 
@@ -77,6 +80,9 @@ app.innerHTML = `
           <button id="btn-quick-cam" class="btn-mocap" style="background:var(--accent-cyan); color:#000; padding:6px 10px; font-size:0.75rem;">
             Start Cam
           </button>
+          <button id="btn-quick-mirror" class="btn-mocap" style="background:rgba(0,245,155,0.2); border-color:var(--accent-emerald); color:#00f59b; padding:6px 10px; font-size:0.75rem;">
+            Mirror: OFF
+          </button>
           <button id="btn-quick-flip" class="btn-mocap" style="padding:6px 10px; font-size:0.75rem;">
             Flip
           </button>
@@ -84,7 +90,7 @@ app.innerHTML = `
 
         <!-- Phone Camera Pip Preview -->
         <div id="pip-container" class="glass-panel" style="position:absolute; bottom:10px; right:10px; width:150px; height:110px; overflow:hidden; border-radius:8px; border:1px solid rgba(0,240,255,0.4); z-index:10; background:#000;">
-          <video id="webcam" playsinline muted autoplay style="width:100%; height:100%; object-fit:cover; transform:scaleX(-1);"></video>
+          <video id="webcam" playsinline muted autoplay style="width:100%; height:100%; object-fit:cover;"></video>
           <div style="position:absolute; top:3px; left:4px; font-size:0.6rem; font-weight:700; color:#fff; background:rgba(0,0,0,0.6); padding:1px 4px; border-radius:3px;">
             CAM FEED
           </div>
@@ -97,9 +103,9 @@ app.innerHTML = `
         <!-- Camera & Sensor Trigger -->
         <div>
           <label style="font-size:0.72rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; display:block; margin-bottom:5px;">
-            1. Tracking Sensor
+            1. Tracking Sensor & Orientation
           </label>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
             <button id="btn-toggle-cam" class="btn-mocap" style="background:var(--accent-cyan); color:#000;">
               Start Camera
             </button>
@@ -107,6 +113,9 @@ app.innerHTML = `
               Flip Camera
             </button>
           </div>
+          <button id="btn-toggle-mirror" class="btn-mocap" style="width:100%; background:rgba(0,245,155,0.15); border-color:var(--accent-emerald); color:#00f59b; font-size:0.75rem;">
+            Mirror Inversion: OFF (Natural Body Mapping)
+          </button>
         </div>
 
         <!-- Unity & Unreal Stream Bridge -->
@@ -181,7 +190,9 @@ const aiDirector = new OpenRouterMoCapAI(OPENROUTER_KEY, AI_MODEL);
 const videoElement = document.getElementById('webcam');
 const btnToggleCam = document.getElementById('btn-toggle-cam');
 const btnSwitchCam = document.getElementById('btn-switch-cam');
+const btnToggleMirror = document.getElementById('btn-toggle-mirror');
 const btnQuickCam = document.getElementById('btn-quick-cam');
+const btnQuickMirror = document.getElementById('btn-quick-mirror');
 const btnQuickFlip = document.getElementById('btn-quick-flip');
 const btnToggleStream = document.getElementById('btn-toggle-stream');
 const btnRecord = document.getElementById('btn-record');
@@ -194,9 +205,47 @@ const streamDot = document.getElementById('stream-dot');
 const streamStatusText = document.getElementById('stream-status-text');
 const fpsCounter = document.getElementById('fps-counter');
 const boneCount = document.getElementById('bone-count');
+const mirrorModeText = document.getElementById('mirror-mode-text');
 const aiChatHistory = document.getElementById('ai-chat-history');
 const aiInput = document.getElementById('ai-input');
 const btnAskAi = document.getElementById('btn-ask-ai');
+
+// Orientation State: false = Natural True Body Mapping (Default, your right arm = avatar's right arm)
+let isMirrored = false;
+
+function updateMirrorUI() {
+  if (isMirrored) {
+    mirrorModeText.innerText = 'MIRROR (SELF-VIEW)';
+    mirrorModeText.style.color = 'var(--accent-amber)';
+    btnToggleMirror.innerText = 'Mirror Inversion: ON (Camera Mirroring)';
+    btnToggleMirror.style.background = 'rgba(255, 170, 0, 0.15)';
+    btnToggleMirror.style.borderColor = 'var(--accent-amber)';
+    btnToggleMirror.style.color = '#ffaa00';
+    btnQuickMirror.innerText = 'Mirror: ON';
+    btnQuickMirror.style.borderColor = 'var(--accent-amber)';
+    btnQuickMirror.style.color = '#ffaa00';
+    videoElement.style.transform = 'scaleX(-1)';
+  } else {
+    mirrorModeText.innerText = 'NATURAL (TRUE RIGHT/LEFT)';
+    mirrorModeText.style.color = 'var(--accent-emerald)';
+    btnToggleMirror.innerText = 'Mirror Inversion: OFF (Natural Body Mapping)';
+    btnToggleMirror.style.background = 'rgba(0, 245, 155, 0.15)';
+    btnToggleMirror.style.borderColor = 'var(--accent-emerald)';
+    btnToggleMirror.style.color = '#00f59b';
+    btnQuickMirror.innerText = 'Mirror: OFF';
+    btnQuickMirror.style.borderColor = 'var(--accent-emerald)';
+    btnQuickMirror.style.color = '#00f59b';
+    videoElement.style.transform = 'none';
+  }
+}
+
+function toggleMirrorMode() {
+  isMirrored = !isMirrored;
+  updateMirrorUI();
+}
+
+btnToggleMirror.addEventListener('click', toggleMirrorMode);
+btnQuickMirror.addEventListener('click', toggleMirrorMode);
 
 // Pane and Tab elements for Mobile
 const viewportPane = document.getElementById('viewport-pane');
@@ -259,38 +308,165 @@ window.addEventListener('resize', () => {
 
 let isCameraRunning = false;
 let currentFacingMode = 'user';
-let poseDetector = null;
+let tracker = null;
 let wsClient = null;
 let frameCount = 0;
 let lastFpsTime = performance.now();
 let framesInSec = 0;
 let recordInterval = null;
 
-// Initialize MediaPipe Pose Tracker
-function initPoseDetector() {
-  if (!window.Pose) {
-    console.error('MediaPipe Pose script not loaded yet.');
+// Initialize MediaPipe Holistic (Pose 33 + Left Hand 21 + Right Hand 21 + Face 468 = 543 Joint Model)
+function initTracker() {
+  if (window.Holistic) {
+    tracker = new window.Holistic({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`,
+    });
+
+    tracker.setOptions({
+      modelComplexity: 1, // High speed 60FPS on mobile/browser
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      smoothSegmentation: false,
+      refineFaceLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    tracker.onResults(onHolisticResults);
+    console.log('[Voltoro MoCap] Holistic 543-joint tracker loaded.');
+  } else if (window.Pose) {
+    tracker = new window.Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+    });
+
+    tracker.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
+    });
+
+    tracker.onResults(onPoseFallbackResults);
+    console.log('[Voltoro MoCap] Fallback Pose tracker loaded.');
+  }
+}
+
+// Full 543 Joint Assembly & Processing Loop
+function onHolisticResults(results) {
+  framesInSec++;
+  const now = performance.now();
+  if (now - lastFpsTime >= 1000) {
+    fpsCounter.innerText = framesInSec;
+    framesInSec = 0;
+    lastFpsTime = now;
+  }
+
+  // 1. Pose Landmarks (33 points)
+  const rawPose = results.poseLandmarks || results.ea || [];
+  if (rawPose.length < 33) {
+    boneCount.innerText = '0';
+    visualizer.updatePose(null);
     return;
   }
 
-  poseDetector = new window.Pose({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
-  });
+  // 2. Assemble Full 543 Joint Structure
+  // [0..32]: Body Pose (33)
+  // [33..53]: Left Hand (21)
+  // [54..74]: Right Hand (21)
+  // [75..542]: Face Mesh (468)
+  const fullRawLandmarks = [];
+  
+  // Body Pose
+  for (let i = 0; i < 33; i++) {
+    fullRawLandmarks.push(rawPose[i]);
+  }
 
-  poseDetector.setOptions({
-    modelComplexity: 1, // 1 is optimal for mobile/browser real-time 60fps
-    smoothLandmarks: true,
-    enableSegmentation: false,
-    smoothSegmentation: false,
-    minDetectionConfidence: 0.6,
-    minTrackingConfidence: 0.6
-  });
+  // Left Hand (21)
+  const rawLeftHand = results.leftHandLandmarks || [];
+  for (let i = 0; i < 21; i++) {
+    if (rawLeftHand[i]) {
+      fullRawLandmarks.push(rawLeftHand[i]);
+    } else {
+      // Fallback relative to left wrist (index 15)
+      const lw = rawPose[15] || { x: 0, y: 0, z: 0 };
+      fullRawLandmarks.push({ x: lw.x, y: lw.y, z: lw.z || 0, visibility: 0 });
+    }
+  }
 
-  poseDetector.onResults(onPoseResults);
+  // Right Hand (21)
+  const rawRightHand = results.rightHandLandmarks || [];
+  for (let i = 0; i < 21; i++) {
+    if (rawRightHand[i]) {
+      fullRawLandmarks.push(rawRightHand[i]);
+    } else {
+      // Fallback relative to right wrist (index 16)
+      const rw = rawPose[16] || { x: 0, y: 0, z: 0 };
+      fullRawLandmarks.push({ x: rw.x, y: rw.y, z: rw.z || 0, visibility: 0 });
+    }
+  }
+
+  // Face Mesh (468)
+  const rawFace = results.faceLandmarks || [];
+  for (let i = 0; i < 468; i++) {
+    if (rawFace[i]) {
+      fullRawLandmarks.push(rawFace[i]);
+    } else {
+      const nose = rawPose[0] || { x: 0, y: 0, z: 0 };
+      fullRawLandmarks.push({ x: nose.x, y: nose.y, z: nose.z || 0, visibility: 0 });
+    }
+  }
+
+  // Filter 543 landmarks through OneEuro jitter elimination bank
+  const filteredLandmarks = filterBank.filterLandmarks(fullRawLandmarks, now);
+  boneCount.innerText = filteredLandmarks.length;
+
+  // Render 3D Viewport Rig (Respects Natural Non-Mirror / Mirror mode)
+  visualizer.updatePose(filteredLandmarks, isMirrored);
+
+  // Compute Bone Orientation Quaternions for Unity HumanBodyBones (Natural mapping)
+  const boneRotations = computeBoneRotations(filteredLandmarks, isMirrored);
+
+  if (recorder.isRecording) {
+    recorder.recordFrame(filteredLandmarks, boneRotations);
+  }
+
+  // Broadcast packet via WebSocket to Unity & Unreal Engine
+  if (wsClient && wsClient.readyState === WebSocket.OPEN) {
+    const hipL = filteredLandmarks[23];
+    const hipR = filteredLandmarks[24];
+    const rootX = (hipL.x + hipR.x) * 0.5;
+    const rootY = (hipL.y + hipR.y) * 0.5;
+    const rootZ = ((hipL.z || 0) + (hipR.z || 0)) * 0.5;
+
+    const packet = {
+      type: 'mocap_frame',
+      timestamp: Date.now(),
+      frame: frameCount++,
+      isMirrored: isMirrored,
+      totalJoints: filteredLandmarks.length,
+      rootPos: {
+        x: isMirrored ? -rootX : rootX,
+        y: -rootY,
+        z: -rootZ
+      },
+      landmarks: filteredLandmarks.map((lm, idx) => ({
+        name: idx < 33 ? `pose_${idx}` : (idx < 54 ? `lh_${idx - 33}` : (idx < 75 ? `rh_${idx - 54}` : `face_${idx - 75}`)),
+        pos: {
+          x: isMirrored ? -lm.x : lm.x,
+          y: -lm.y,
+          z: -(lm.z !== undefined ? lm.z : 0)
+        },
+        visibility: lm.visibility || 1.0
+      })),
+      bones: boneRotations
+    };
+
+    wsClient.send(JSON.stringify(packet));
+  }
 }
 
-// Landmark Processing & Bone Calculation Loop
-function onPoseResults(results) {
+// Fallback when only Pose is available
+function onPoseFallbackResults(results) {
   framesInSec++;
   const now = performance.now();
   if (now - lastFpsTime >= 1000) {
@@ -300,39 +476,39 @@ function onPoseResults(results) {
   }
 
   const rawLandmarks = results.worldLandmarks || results.poseLandmarks;
-
   if (rawLandmarks && rawLandmarks.length >= 33) {
     const worldLandmarks = filterBank.filterLandmarks(rawLandmarks, now);
     boneCount.innerText = worldLandmarks.length;
-    visualizer.updatePose(worldLandmarks);
+    visualizer.updatePose(worldLandmarks, isMirrored);
 
-    // Compute Bone Orientation Quaternions for Unity HumanBodyBones
-    const boneRotations = computeBoneRotations(worldLandmarks);
-
-    // If recording take
+    const boneRotations = computeBoneRotations(worldLandmarks, isMirrored);
     if (recorder.isRecording) {
       recorder.recordFrame(worldLandmarks, boneRotations);
     }
 
-    // Broadcast packet via WebSocket to Unity & Unreal Engine
     if (wsClient && wsClient.readyState === WebSocket.OPEN) {
       const packet = {
         type: 'mocap_frame',
         timestamp: Date.now(),
         frame: frameCount++,
+        isMirrored: isMirrored,
+        totalJoints: worldLandmarks.length,
         rootPos: {
-          x: (worldLandmarks[23].x + worldLandmarks[24].x) * 0.5,
-          y: -(worldLandmarks[23].y + worldLandmarks[24].y) * 0.5,
-          z: -(worldLandmarks[23].z + worldLandmarks[24].z) * 0.5,
+          x: isMirrored ? -worldLandmarks[23].x : worldLandmarks[23].x,
+          y: -worldLandmarks[23].y,
+          z: -worldLandmarks[23].z,
         },
         landmarks: worldLandmarks.map((lm, idx) => ({
           name: `lm_${idx}`,
-          pos: { x: lm.x, y: -lm.y, z: -lm.z },
+          pos: {
+            x: isMirrored ? -lm.x : lm.x,
+            y: -lm.y,
+            z: -lm.z
+          },
           visibility: lm.visibility || 1.0
         })),
         bones: boneRotations
       };
-
       wsClient.send(JSON.stringify(packet));
     }
   } else {
@@ -343,7 +519,7 @@ function onPoseResults(results) {
 
 // Camera Control
 async function startCamera() {
-  if (!poseDetector) initPoseDetector();
+  if (!tracker) initTracker();
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -367,11 +543,13 @@ async function startCamera() {
     btnQuickCam.innerText = 'Stop Cam';
     btnQuickCam.style.background = 'var(--accent-rose)';
 
+    updateMirrorUI();
+
     // Frame processing tick
     async function processFrame() {
       if (!isCameraRunning) return;
-      if (videoElement.readyState >= 2) {
-        await poseDetector.send({ image: videoElement });
+      if (videoElement.readyState >= 2 && tracker) {
+        await tracker.send({ image: videoElement });
       }
       requestAnimationFrame(processFrame);
     }
@@ -530,9 +708,10 @@ aiInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendToAiDirector();
 });
 
-// Auto-initialize pose detector when page is ready
+// Auto-initialize pose/holistic tracker when page is ready
 window.addEventListener('load', () => {
-  initPoseDetector();
+  initTracker();
+  updateMirrorUI();
   if (isMobileView()) {
     updateMobileTabs('viewport');
   }
